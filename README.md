@@ -2,7 +2,22 @@
 
 专注中文写作的 Markdown 编辑器：左边写、右边看，滚动双向联动，图片本地存储，渲染结果一键粘贴到微信公众号。
 
-> 当前状态：功能开发与自动化测试阶段，**暂未打包 exe**（打包配置见文末）。
+## 下载安装（Windows）
+
+安装包发布在 [Releases](https://github.com/ylzjgit/MDmaster/releases) 页面：
+
+| 文件 | 说明 |
+| --- | --- |
+| `MDMaster-Setup-1.0.0.exe` | Windows 10 / 11（64 位）安装包，约 96 MB，自带 Electron 运行时，**目标机器不需要安装 Node.js** |
+
+直接下载：<https://github.com/ylzjgit/MDmaster/releases/latest/download/MDMaster-Setup-1.0.0.exe>
+
+安装步骤：
+
+1. 双击安装包，可选择安装目录（按当前用户安装，不需要管理员权限）
+2. 首次运行如出现 SmartScreen 提示「Windows 已保护你的电脑 / 未知发布者」，点「更多信息 → 仍要运行」即可（当前版本未做代码签名）
+3. 安装完成后桌面与开始菜单会生成 MDMaster 快捷方式；卸载请运行安装目录下的 `Uninstall MDMaster.exe`
+4. 应用数据（设置、图片上传缓存）保存在 `%APPDATA%\MDMaster`，卸载时默认保留
 
 ## 功能
 
@@ -138,6 +153,10 @@ npm run dist:dir    # 只生成免安装目录：release/win-unpacked/
 > $env:ELECTRON_MIRROR='https://npmmirror.com/mirrors/electron/'
 > $env:ELECTRON_BUILDER_BINARIES_MIRROR='https://npmmirror.com/mirrors/electron-builder-binaries/'
 > ```
+
+### 发布到 GitHub Releases
+
+打包完成后把 `release/MDMaster-Setup-<version>.exe` 作为 release 附件上传（可在网页端手动上传，或用 `gh release upload` / REST API 自动化）。README 顶部的下载链接用的是 `releases/latest/download/<文件名>` 形式，升级版本号时同步改一下文件名即可。
 
 ### 分发到其他电脑
 

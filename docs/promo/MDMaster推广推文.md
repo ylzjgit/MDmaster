@@ -1,4 +1,4 @@
-# 公众号排版太折腾，我写了个 Markdown 编辑器 MDMaster
+公众号排版太折腾，我写了个 Markdown 编辑器 MDMaster
 
 写公众号最烦的不是写内容，是排版。
 

@@ -8,9 +8,9 @@
 
 | 文件 | 说明 |
 | --- | --- |
-| `MDMaster-Setup-1.0.0.exe` | Windows 10 / 11（64 位）安装包，约 96 MB，自带 Electron 运行时，**目标机器不需要安装 Node.js** |
+| `MDMaster-Setup-1.0.1.exe` | Windows 10 / 11（64 位）安装包，约 96 MB，自带 Electron 运行时，**目标机器不需要安装 Node.js** |
 
-直接下载：<https://github.com/ylzjgit/MDmaster/releases/latest/download/MDMaster-Setup-1.0.0.exe>
+直接下载：<https://github.com/ylzjgit/MDmaster/releases/latest/download/MDMaster-Setup-1.0.1.exe>
 
 安装步骤：
 

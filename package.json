@@ -1,0 +1,94 @@
+{
+  "name": "mdmaster",
+  "productName": "MDMaster",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MDMaster - 左右分栏 Markdown 编辑器，支持目录联动、图片本地存储与一键复制到微信公众号",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:web": "vite",
+    "build": "tsc --noEmit && vite build",
+    "start": "node scripts/start.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "test": "esbuild tests/run.ts --bundle --platform=node --format=esm --outfile=.tmp/tests.mjs --log-level=warning && node .tmp/tests.mjs",
+    "smoke:clip": "node_modules\\electron\\dist\\electron.exe scripts/clip-preview.cjs",
+    "dist": "npm run build && electron-builder --win nsis",
+    "dist:dir": "npm run build && electron-builder --win --dir"
+  },
+  "devDependencies": {
+    "@codemirror/lang-markdown": "^6.3.4",
+    "@codemirror/language": "^6.11.0",
+    "@codemirror/search": "^6.5.10",
+    "@codemirror/state": "^6.5.2",
+    "@codemirror/view": "^6.36.8",
+    "@lezer/highlight": "^1.2.1",
+    "@types/markdown-it": "^14.1.2",
+    "@types/node": "^22.10.5",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "codemirror": "^6.0.2",
+    "electron": "^37.10.3",
+    "electron-builder": "^26.18.0",
+    "esbuild": "^0.25.0",
+    "highlight.js": "^11.12.0",
+    "markdown-it": "^14.1.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "typescript": "~5.7.3",
+    "vite": "^6.3.5"
+  },
+  "author": {
+    "name": "北京云林智炬信息科技有限公司"
+  },
+  "license": "UNLICENSED",
+  "build": {
+    "appId": "com.yunlin.mdmaster",
+    "productName": "MDMaster",
+    "copyright": "Copyright © 2026 北京云林智炬信息科技有限公司",
+    "asar": true,
+    "directories": {
+      "buildResources": "build",
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "!**/*.map"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "legalTrademarks": "北京云林智炬信息科技有限公司",
+      "artifactName": "MDMaster-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "MDMaster",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "language": "2052",
+      "installerLanguages": [
+        "zh_CN"
+      ],
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "MDMaster-Setup-${version}.${ext}"
+    }
+  }
+}

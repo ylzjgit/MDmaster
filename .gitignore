@@ -1,0 +1,12 @@
+node_modules/
+dist/
+dist-electron/
+release/
+.smoke/
+*.log
+.eb-cache/
+.install-test/
+.npm-eb.log
+.build-eb.log
+.docx-tpl/
+.tmp/

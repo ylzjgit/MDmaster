@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { shortcutRows } from "../lib/shortcuts";
+import { bridge } from "../lib/bridge";
 import type { AppSettings } from "../types";
 
 interface ModalProps {
@@ -136,6 +137,20 @@ export function SettingsDialog({ settings, onClose, onSave, onTest }: SettingsDi
   const [form, setForm] = useState<AppSettings>(settings);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [ipInfo, setIpInfo] = useState<{ ip: string; distinct: string[]; stable: boolean } | null>(null);
+  const [ipBusy, setIpBusy] = useState(false);
+
+  const checkIp = async () => {
+    setIpBusy(true);
+    try {
+      const info = await bridge.net.publicIp();
+      setIpInfo({ ip: info.ip, distinct: info.distinct, stable: info.stable });
+    } catch {
+      setIpInfo(null);
+    } finally {
+      setIpBusy(false);
+    }
+  };
 
   const update = (patch: Partial<AppSettings>) => setForm((current) => ({ ...current, ...patch }));
 
@@ -210,6 +225,7 @@ export function SettingsDialog({ settings, onClose, onSave, onTest }: SettingsDi
           >
             <option value="wechat">公众号官方接口（media/uploadimg）</option>
             <option value="custom">自定义图床接口（HTTP 上传）</option>
+            <option value="github">GitHub 图床 + jsDelivr（免公众号白名单）</option>
             <option value="none">不上传，保留本地路径</option>
           </select>
         </label>
@@ -239,6 +255,25 @@ export function SettingsDialog({ settings, onClose, onSave, onTest }: SettingsDi
               在公众号后台「设置与开发 → 基本配置」获取 AppID / AppSecret，并把本机公网 IP 加入 IP 白名单，否则取
               access_token 会被拒绝。上传后的图片地址属于公众号素材，仅在该公众号内可见。
             </p>
+            <div className="settings-iprow">
+              <button className="ghost-button" onClick={() => void checkIp()} disabled={ipBusy}>
+                {ipBusy ? "检测中…" : "检测出口 IP"}
+              </button>
+              {ipInfo ? (
+                ipInfo.stable ? (
+                  <span className="settings-ip">
+                    本机出口 IP：<b>{ipInfo.ip || "检测失败"}</b>，把它加入白名单即可
+                  </span>
+                ) : (
+                  <span className="settings-ip is-warn">
+                    出口 IP 在变化（{ipInfo.distinct.join(" / ")}），说明走运营商 NAT 池，白名单无法稳定命中 ——
+                    建议改用 GitHub 图床或自定义图床
+                  </span>
+                )
+              ) : (
+                <span className="settings-ip">不知道要加哪个 IP 时，先点左边的检测</span>
+              )}
+            </div>
           </>
         ) : null}
 
@@ -272,6 +307,65 @@ export function SettingsDialog({ settings, onClose, onSave, onTest }: SettingsDi
               />
             </label>
             <p className="settings-hint">支持任意图床网关，只要返回 JSON 且图片地址是公网可访问的 HTTP(S) 链接。</p>
+          </>
+        ) : null}
+
+        {form.uploadProvider === "github" ? (
+          <>
+            <div className="settings-grid2">
+              <label className="field">
+                <span>仓库 owner</span>
+                <input
+                  value={form.githubOwner}
+                  spellCheck={false}
+                  placeholder="ylzjgit"
+                  onChange={(event) => update({ githubOwner: event.target.value })}
+                />
+              </label>
+              <label className="field">
+                <span>仓库名</span>
+                <input
+                  value={form.githubRepo}
+                  spellCheck={false}
+                  placeholder="MDmaster-images"
+                  onChange={(event) => update({ githubRepo: event.target.value })}
+                />
+              </label>
+            </div>
+            <div className="settings-grid2">
+              <label className="field">
+                <span>分支</span>
+                <input
+                  value={form.githubBranch}
+                  spellCheck={false}
+                  placeholder="main"
+                  onChange={(event) => update({ githubBranch: event.target.value })}
+                />
+              </label>
+              <label className="field">
+                <span>图片目录（仓库内）</span>
+                <input
+                  value={form.githubPath}
+                  spellCheck={false}
+                  placeholder="mdimages"
+                  onChange={(event) => update({ githubPath: event.target.value })}
+                />
+              </label>
+            </div>
+            <label className="field">
+              <span>GitHub Token（需要该仓库 Contents 写权限）</span>
+              <input
+                type="password"
+                value={form.githubToken}
+                spellCheck={false}
+                placeholder="github_pat_..."
+                onChange={(event) => update({ githubToken: event.target.value })}
+              />
+            </label>
+            <p className="settings-hint">
+              图片会提交到指定仓库，再用 jsDelivr 镜像输出公网地址（上传后自动挑选 fastly / gcore / cdn
+              中能通的域名）。这条路不需要公众号白名单，适合公网 IP 会变的宽带。建议单独建一个公开仓库专门放图。
+            </p>
           </>
         ) : null}
 

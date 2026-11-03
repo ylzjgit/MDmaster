@@ -32,6 +32,11 @@ const DEFAULT_SETTINGS: AppSettings = {
   customUploadUrl: "",
   customFieldName: "file",
   customUrlPath: "data.url",
+  githubOwner: "",
+  githubRepo: "",
+  githubBranch: "main",
+  githubPath: "mdimages",
+  githubToken: "",
 };
 
 const AUTOSAVE_DELAY = 700;
@@ -459,7 +464,13 @@ export default function App() {
           html = toCopyHtml(rendered.html, result.map);
           const uploaded = Object.keys(result.map).length;
           if (result.errors.length > 0) {
-            note = "（" + result.errors.length + " 张图片上传失败，需手动处理：" + result.errors[0] + "）";
+            const firstError = String(result.errors[0] || "");
+            note =
+              "（" +
+              result.errors.length +
+              " 张图片上传失败：" +
+              (firstError.length > 140 ? firstError.slice(0, 140) + "…" : firstError) +
+              "）";
           } else if (uploaded > 0) {
             note = "，已上传 " + uploaded + " 张图片";
           }

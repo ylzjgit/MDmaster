@@ -35,6 +35,9 @@ export interface MdMasterBridge {
     testUpload: () => Promise<{ ok: boolean; url?: string; error?: string }>;
     resolve: (payload: { docPath: string; src: string }) => Promise<{ path: string } | null>;
   };
+  net: {
+    publicIp: () => Promise<{ ip: string; samples: string[]; distinct: string[]; stable: boolean }>;
+  };
   exportHtml: (defaultName: string, html: string) => Promise<string | null>;
   onFlushRequest?: (callback: () => void) => () => void;
   flushDone?: () => void;
@@ -131,6 +134,11 @@ function createMemoryBridge(): MdMasterBridge {
         customUploadUrl: "",
         customFieldName: "file",
         customUrlPath: "data.url",
+        githubOwner: "",
+        githubRepo: "",
+        githubBranch: "main",
+        githubPath: "mdimages",
+        githubToken: "",
       }),
       set: async (patch) => ({
         imageDir: "assets",
@@ -140,6 +148,11 @@ function createMemoryBridge(): MdMasterBridge {
         customUploadUrl: "",
         customFieldName: "file",
         customUrlPath: "data.url",
+        githubOwner: "",
+        githubRepo: "",
+        githubBranch: "main",
+        githubPath: "mdimages",
+        githubToken: "",
         ...patch,
       }),
     },
@@ -150,6 +163,9 @@ function createMemoryBridge(): MdMasterBridge {
       upload: async () => ({ map: {}, errors: ["浏览器预览模式不支持上传图片"] }),
       testUpload: async () => ({ ok: false, error: "浏览器预览模式不支持上传图片" }),
       resolve: async () => null,
+    },
+    net: {
+      publicIp: async () => ({ ip: "", samples: [], distinct: [], stable: true }),
     },
     exportHtml: async () => null,
     onWorkspaceChanged: () => () => undefined,

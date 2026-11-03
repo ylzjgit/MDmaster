@@ -58,7 +58,7 @@ MDMaster 是直接把一个文件夹打开成工程，左边树形列出所有 m
 
 Windows 安装包放在 GitHub，直接下：
 
-https://github.com/ylzjgit/MDmaster/releases/latest/download/MDMaster-Setup-1.0.0.exe
+https://github.com/ylzjgit/MDmaster/releases/latest/download/MDMaster-Setup-1.0.2.exe
 
 双击安装，按当前用户装，不用管理员权限，安装包自带运行环境，不用另外装 Node.js。
 

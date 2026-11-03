@@ -32,12 +32,17 @@ export interface AppInfo {
 
 export interface AppSettings {
   imageDir: string;
-  uploadProvider: "wechat" | "custom" | "none";
+  uploadProvider: "wechat" | "custom" | "github" | "none";
   wechatAppId: string;
   wechatAppSecret: string;
   customUploadUrl: string;
   customFieldName: string;
   customUrlPath: string;
+  githubOwner: string;
+  githubRepo: string;
+  githubBranch: string;
+  githubPath: string;
+  githubToken: string;
 }
 
 export interface SavedImage {

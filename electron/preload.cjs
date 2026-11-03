@@ -39,6 +39,9 @@ contextBridge.exposeInMainWorld("mdmaster", {
     testUpload: () => invoke("image:test-upload"),
     resolve: (payload) => invoke("images:resolve", payload),
   },
+  net: {
+    publicIp: () => invoke("net:public-ip"),
+  },
   exportHtml: (defaultName, html) => invoke("export:html", { defaultName, html }),
   onFlushRequest: (callback) => {
     const listener = () => callback();

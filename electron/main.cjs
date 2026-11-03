@@ -52,6 +52,11 @@ const SETTINGS_DEFAULTS = {
   customUploadUrl: "",
   customFieldName: "file",
   customUrlPath: "data.url",
+  githubOwner: "",
+  githubRepo: "",
+  githubBranch: "main",
+  githubPath: "mdimages",
+  githubToken: "",
 };
 
 const MIME_BY_EXT = {
@@ -154,10 +159,23 @@ async function getWechatToken() {
   const response = await fetch(url);
   const json = await response.json();
   if (!json.access_token) {
+    const errmsg = String(json.errmsg || json.errcode || "未知错误");
+    if (/invalid ip/i.test(errmsg)) {
+      const seenIp = (/invalid ip\s+([0-9.]+)/i.exec(errmsg) || [])[1] || "";
+      const samples = await sampleEgressIps(2).catch(() => []);
+      const distinct = Array.from(new Set(samples));
+      const note =
+        distinct.length > 1
+          ? "实测本机出口 IP 会随连接变化（" + distinct.join(" / ") + "），这是运营商 NAT 池导致的，白名单几乎不可能稳定命中。"
+          : "本机当前出口 IP：" + (distinct[0] || "检测失败") + "。";
+      throw new Error(
+        "公众号接口拒绝：微信看到的出口 IP 是 " + (seenIp || "未知") + "，不在 IP 白名单里。" +
+          note +
+          "可选方案：① 把它加入公众号「设置与开发 → 基本配置 → IP 白名单」后重试；② 或改用「GitHub 图床」/「自定义图床」，这两条不需要白名单。"
+      );
+    }
     throw new Error(
-      "获取 access_token 失败：" +
-        (json.errmsg || json.errcode || "未知错误") +
-        "（请检查 AppID / AppSecret，并把本机公网 IP 加入公众号 IP 白名单）"
+      "获取 access_token 失败：" + errmsg + "（请检查 AppID / AppSecret，并把本机公网 IP 加入公众号 IP 白名单）"
     );
   }
   tokenCache = { token: json.access_token, expires: now + (Number(json.expires_in) || 7200) * 1000 };
@@ -207,11 +225,109 @@ async function uploadToCustom(buffer, fileName, mime) {
   return value;
 }
 
+/* ------------------------------------------------------ 出口 IP 与 GitHub 图床 */
+
+/** 取样公网出口 IP（Node fetch 直连，与调用微信接口同一条出口） */
+async function sampleEgressIps(times) {
+  const ips = [];
+  const endpoints = ["https://ifconfig.me/ip", "https://api.ipify.org", "https://ipinfo.io/ip"];
+  for (let i = 0; i < (times || 2); i += 1) {
+    for (const endpoint of endpoints) {
+      try {
+        // 强制每次新建连接，才能暴露「每连接换 IP」的运营商 NAT 池
+        const response = await fetch(endpoint, {
+          headers: { Connection: "close" },
+          signal: AbortSignal.timeout(10000),
+        });
+        if (!response.ok) continue;
+        const text = (await response.text()).trim();
+        const match = /([0-9]{1,3}(?:\.[0-9]{1,3}){3})/.exec(text);
+        if (match) {
+          ips.push(match[1]);
+          break;
+        }
+      } catch {
+        /* 换下一个服务 */
+      }
+    }
+    if (i < (times || 2) - 1) await new Promise((resolve) => setTimeout(resolve, 1200));
+  }
+  return ips;
+}
+
+/** 把本地图片提交到 GitHub 仓库，返回可公网访问的地址（jsDelivr CDN，国内速度好） */
+async function uploadToGithub(buffer, fileName, mime) {
+  const owner = String(settings.githubOwner || "").trim();
+  const repo = String(settings.githubRepo || "").trim();
+  const branch = String(settings.githubBranch || "main").trim() || "main";
+  const token = String(settings.githubToken || "").trim();
+  const prefix = String(settings.githubPath || "mdimages").replace(/^\/+|\/+$/g, "");
+  if (!owner || !repo) throw new Error("未配置 GitHub 图床的 owner / repo");
+  if (!token) throw new Error("未配置 GitHub 图床的 Token（需要该仓库 Contents 写权限）");
+  if (buffer.length > 20 * 1024 * 1024) throw new Error("图片超过 20MB，GitHub 接口不接受");
+
+  const safeName = fileName.replace(/[^\w.\-\u4e00-\u9fa5]/g, "_");
+  const path = prefix + "/" + safeName;
+  const url = "https://api.github.com/repos/" + owner + "/" + repo + "/contents/" + path.split("/").map(encodeURIComponent).join("/");
+  const body = JSON.stringify({
+    message: "upload image: " + safeName,
+    content: buffer.toString("base64"),
+    branch,
+  });
+  const response = await fetch(url, {
+    method: "PUT",
+    headers: {
+      Authorization: "Bearer " + token,
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      "Content-Type": "application/json",
+      "User-Agent": "MDMaster",
+    },
+    body,
+    signal: AbortSignal.timeout(60000),
+  });
+  const json = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(
+      "GitHub 图床上传失败：" +
+        (json.message || response.status) +
+        (response.status === 401 || response.status === 403 ? "（检查 Token 是否有该仓库 Contents 写权限）" : "")
+    );
+  }
+  // cdn.jsdelivr.net / fastly 在国内时好时坏，按顺序挑一个能通的镜像；
+  // 用提交 SHA 作 ref，新图能立刻命中（@branch 会被 CDN 缓存拖住）
+  const encodedPath = path.split("/").map(encodeURIComponent).join("/");
+  const ref = (json.commit && json.commit.sha) || branch;
+  const templates = [
+    "https://gcore.jsdelivr.net/gh/{owner}/{repo}@{ref}/{path}",
+    "https://fastly.jsdelivr.net/gh/{owner}/{repo}@{ref}/{path}",
+    "https://cdn.jsdelivr.net/gh/{owner}/{repo}@{ref}/{path}",
+    "https://raw.githubusercontent.com/{owner}/{repo}/{ref}/{path}",
+  ];
+  let fallback = "";
+  for (const template of templates) {
+    const candidate = template
+      .replace("{owner}", owner)
+      .replace("{repo}", repo)
+      .replace("{ref}", ref)
+      .replace("{path}", encodedPath);
+    if (!fallback) fallback = candidate;
+    try {
+      const head = await fetch(candidate, { method: "HEAD", signal: AbortSignal.timeout(8000) });
+      if (head.ok) return candidate;
+    } catch {
+      /* 试下一个镜像 */
+    }
+  }
+  return fallback;
+}
+
 async function uploadImageFile(absPath) {
   const buffer = await fs.readFile(absPath);
   const mime = mimeFromExt(path.extname(absPath));
   const fileName = path.basename(absPath);
   if (settings.uploadProvider === "custom") return uploadToCustom(buffer, fileName, mime);
+  if (settings.uploadProvider === "github") return uploadToGithub(buffer, fileName, mime);
   return uploadToWechat(buffer, fileName, mime);
 }
 
@@ -509,6 +625,12 @@ function registerIpc() {
     }
     if (uploaded > 0) await persistUploadCache();
     return { map, errors, uploaded };
+  });
+
+  ipcMain.handle("net:public-ip", async () => {
+    const samples = await sampleEgressIps(3);
+    const distinct = Array.from(new Set(samples));
+    return { samples, distinct, stable: distinct.length <= 1, ip: distinct[0] || "" };
   });
 
   // 渲染层图片加载失败时，用主进程兜底定位真实文件

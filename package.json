@@ -1,7 +1,7 @@
 {
   "name": "mdmaster",
   "productName": "MDMaster",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "description": "MDMaster - 左右分栏 Markdown 编辑器，支持目录联动、图片本地存储与一键复制到微信公众号",
   "type": "module",

@@ -716,11 +716,56 @@ async function workspaceImageIndex() {
   return map;
 }
 
+function decodePathSafe(text) {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return text;
+  }
+}
+
+/** 依次尝试「原样 / 解码后 / 解析后」的路径，最后按文件名在工作区兜底 */
+async function findImageFile(candidatePath) {
+  if (!candidatePath) return null;
+  const variants = [];
+  const push = (value) => {
+    if (value && !variants.includes(value)) variants.push(value);
+  };
+  push(candidatePath);
+  push(decodePathSafe(candidatePath));
+  push(path.resolve(candidatePath));
+  for (const variant of variants) {
+    try {
+      const stat = await fs.stat(variant);
+      if (stat.isFile()) return variant;
+    } catch {
+      /* 继续尝试 */
+    }
+  }
+  const base = path.basename(decodePathSafe(candidatePath)).toLowerCase();
+  if (base && base !== "." && state.root) {
+    const index = await workspaceImageIndex();
+    const hit = index.get(base);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/** 记录图片解析失败，便于事后定位（%APPDATA%\MDMaster\image-errors.log） */
+async function logImageError(payload) {
+  try {
+    const file = path.join(app.getPath("userData"), "image-errors.log");
+    await fs.appendFile(file, new Date().toISOString() + " " + JSON.stringify(payload) + "\n", "utf8");
+  } catch {
+    /* 忽略 */
+  }
+}
+
 /** 把 Markdown 里写的图片地址解析成真实存在的绝对路径 */
 async function resolveImagePath(docPath, src) {
   const raw = String(src || "").trim();
   if (!raw || /^(https?:|data:|mdlocal:)/i.test(raw)) return null;
-  const cleaned = raw.replace(/^file:\/{2,3}/i, "").replace(/\\/g, "/");
+  const cleaned = decodePathSafe(raw.replace(/^file:\/{2,3}/i, "").replace(/\\/g, "/"));
   const candidates = [];
   if (/^[A-Za-z]:\//.test(cleaned) || cleaned.startsWith("//")) {
     candidates.push(path.resolve(cleaned));
@@ -734,19 +779,10 @@ async function resolveImagePath(docPath, src) {
     if (state.root) candidates.push(path.resolve(state.root, cleaned));
   }
   for (const candidate of candidates) {
-    try {
-      const stat = await fs.stat(candidate);
-      if (stat.isFile()) return candidate;
-    } catch {
-      /* 继续尝试 */
-    }
+    const found = await findImageFile(candidate);
+    if (found) return found;
   }
-  const base = path.basename(cleaned);
-  if (base && state.root) {
-    const index = await workspaceImageIndex();
-    const hit = index.get(base.toLowerCase());
-    if (hit) return hit;
-  }
+  await logImageError({ stage: "resolve", src: raw, docPath: docPath || "", root: state.root || "", candidates });
   return null;
 }
 
@@ -1283,15 +1319,22 @@ if (!gotLock) {
         let filePath = decodeURIComponent(url.pathname);
         if (/^\/[A-Za-z]:/.test(filePath)) filePath = filePath.slice(1);
         const abs = path.resolve(filePath);
+        // 路径可能被多编码了一层或文件名有出入，做一次兜底定位
+        const resolved = (await findImageFile(abs)) || abs;
+        const ext = path.extname(resolved).toLowerCase();
         if (state.root) {
-          const rel = path.relative(state.root, abs);
+          const rel = path.relative(state.root, resolved);
           const inside = rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
           // 工作区外的文件只放行图片，避免被文档读取任意本地文件
-          if (!inside && !IMAGE_EXT.has(path.extname(abs).toLowerCase())) {
+          if (!inside && !IMAGE_EXT.has(ext)) {
             return new Response("forbidden", { status: 403 });
           }
         }
-        return await net.fetch(pathToFileURL(abs).toString());
+        if (!fsSync.existsSync(resolved)) {
+          await logImageError({ stage: "protocol", request: decodeURIComponent(url.pathname).slice(0, 300) });
+          return new Response("not found", { status: 404 });
+        }
+        return await net.fetch(pathToFileURL(resolved).toString());
       } catch {
         return new Response("not found", { status: 404 });
       }

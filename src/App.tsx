@@ -145,9 +145,11 @@ export default function App() {
   const activeTab = tabs.find((tab) => tab.path === activePath) ?? null;
   const content = activeTab?.content ?? "";
   const theme = useMemo(() => getTheme(themeId), [themeId]);
+  // 没有打开文档时（例如刚切到某目录），相对图片以工作区根目录为基准
+  const imageBasePath = activePath ?? (root ? root.replace(/\\/g, "/") + "/__untitled.md" : undefined);
   const rendered = useMemo(
-    () => renderMarkdown(content, { theme, docPath: activePath ?? undefined, breaks }),
-    [content, theme, activePath, breaks]
+    () => renderMarkdown(content, { theme, docPath: imageBasePath, breaks }),
+    [content, theme, imageBasePath, breaks]
   );
   const files = useMemo(() => flattenFiles(tree).filter((entry) => entry.markdown), [tree]);
   const dirtyPaths = useMemo(
@@ -907,7 +909,7 @@ export default function App() {
                       <Preview
                         ref={previewRef}
                         html={rendered.html}
-                        docPath={activePath ?? ""}
+                        docPath={imageBasePath ?? ""}
                         onScroll={handlePreviewScroll}
                         onJumpToLine={handlePreviewClickLine}
                         onOpenLink={handleOpenLink}

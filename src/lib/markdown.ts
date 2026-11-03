@@ -174,6 +174,14 @@ function uniqueId(env: RenderEnv, text: string, index: number): string {
 // 注意：标准协议下 mdlocal:///remote 会被解析成 host=remote，这里用规范形式
 export const REMOTE_IMAGE_PREFIX = "mdlocal://remote/?u=";
 
+function decodePathOnly(text: string): string {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return text;
+  }
+}
+
 export function buildLocalImageUrl(absPath: string): string {
   const normalized = String(absPath).replace(/\\/g, "/");
   const encoded = /%[0-9A-Fa-f]{2}/.test(normalized) ? normalized : encodeURI(normalized);
@@ -194,14 +202,14 @@ function resolveImageSrc(src: string, env: RenderEnv): string {
   // file:/// 与 Windows 绝对路径：直接按绝对路径处理
   const noScheme = raw.replace(/^file:\/{2,3}/i, "").replace(/\\/g, "/");
   if (/^[A-Za-z]:\//.test(noScheme) || noScheme.startsWith("//")) {
-    return buildLocalImageUrl(noScheme);
+    return buildLocalImageUrl(decodePathOnly(noScheme));
   }
 
   if (!env.docPath) return noScheme;
-  // markdown-it 已经对相对路径做过百分号编码，这里只编码文档目录，避免二次编码
+  // markdown-it 会把非 ASCII 编码成 %XX；这里先解码成真实文件名，再整体编码一次
   const dir = env.docPath.replace(/\\/g, "/").replace(/\/[^/]*$/, "/");
-  const rel = noScheme.replace(/^\.\//, "").replace(/^\/+/, "");
-  return "mdlocal:///" + encodeURI(dir) + rel;
+  const rel = decodePathOnly(noScheme.replace(/^\.\//, "").replace(/^\/+/, ""));
+  return buildLocalImageUrl(dir + rel);
 }
 
 function createMarkdown(): MarkdownIt {

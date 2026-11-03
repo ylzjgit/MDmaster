@@ -87,11 +87,17 @@ export function Preview({ html, docPath, onScroll, onJumpToLine, onOpenLink, ref
         }
       }
       if (cancelled) return;
+      const readable = (() => {
+        try {
+          return decodeURIComponent(orig || img.getAttribute("src") || "");
+        } catch {
+          return orig || img.getAttribute("src") || "";
+        }
+      })();
+      img.setAttribute("alt", "");
       showHint(
         img,
-        isRemote
-          ? "网络图片下载失败，请检查网络或系统代理：" + orig
-          : "找不到图片文件：" + (orig || img.getAttribute("src") || "")
+        isRemote ? "网络图片下载失败，请检查网络或系统代理：" + readable : "找不到图片文件：" + readable
       );
     };
 

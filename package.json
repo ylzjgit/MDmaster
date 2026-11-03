@@ -43,7 +43,7 @@
   "author": {
     "name": "北京云林智炬信息科技有限公司"
   },
-  "license": "UNLICENSED",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "build": {
     "appId": "com.yunlin.mdmaster",
     "productName": "MDMaster",

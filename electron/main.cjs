@@ -5,6 +5,7 @@ const path = require("node:path");
 const fs = require("node:fs/promises");
 const fsSync = require("node:fs");
 const { pathToFileURL } = require("node:url");
+const crypto = require("node:crypto");
 
 // 本地图片协议：mdlocal:///<绝对路径>，dev(http) 与打包(file) 两种模式下都能显示
 protocol.registerSchemesAsPrivileged([
@@ -22,10 +23,8 @@ const SKIP_DIRS = new Set([
   "node_modules", ".git", ".svn", ".hg", "dist", "dist-electron", "release",
   ".vite", ".cache", ".idea", ".vscode", "__pycache__", ".smoke",
 ]);
-const SKIP_FILE_EXT = new Set([
-  ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".pdf", ".zip",
-  ".exe", ".dll", ".mp4", ".mp3", ".woff", ".woff2", ".ttf",
-]);
+const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".bmp", ".avif"]);
+const SKIP_FILE_EXT = new Set([".pdf", ".zip", ".exe", ".dll", ".mp4", ".mp3", ".woff", ".woff2", ".ttf"]);
 const MD_EXT = new Set([".md", ".markdown", ".mdx"]);
 const BACKSLASH = String.fromCharCode(92);
 const ILLEGAL_NAME_CHARS = ["/", ":", "*", "?", '"', "<", ">", "|", BACKSLASH];
@@ -135,6 +134,7 @@ function extFromType(type, name) {
 function localPathFromSrc(src) {
   const text = String(src || "");
   if (text.indexOf("mdlocal:") !== 0) return null;
+  if (text.indexOf("mdlocal://remote/") === 0 || text.indexOf("mdlocal:///remote?") === 0) return null;
   let decoded = decodeURIComponent(text.replace(/^mdlocal:\/\/\//, ""));
   if (/^\/[A-Za-z]:/.test(decoded)) decoded = decoded.slice(1);
   return path.resolve(decoded);
@@ -254,7 +254,8 @@ async function scanDir(dir, depth) {
       if (SKIP_DIRS.has(name)) continue;
       out.push({ name, path: full, type: "dir", children: await scanDir(full, depth + 1) });
     } else if (entry.isFile()) {
-      if (SKIP_FILE_EXT.has(path.extname(name).toLowerCase())) continue;
+      const ext = path.extname(name).toLowerCase();
+      if (SKIP_FILE_EXT.has(ext)) continue;
       let size = 0;
       try {
         size = (await fs.stat(full)).size;
@@ -266,7 +267,8 @@ async function scanDir(dir, depth) {
         path: full,
         type: "file",
         size,
-        markdown: MD_EXT.has(path.extname(name).toLowerCase()),
+        markdown: MD_EXT.has(ext),
+        image: IMAGE_EXT.has(ext),
       });
     }
   }
@@ -509,6 +511,13 @@ function registerIpc() {
     return { map, errors, uploaded };
   });
 
+  // 渲染层图片加载失败时，用主进程兜底定位真实文件
+  ipcMain.handle("images:resolve", async (_e, payload) => {
+    const docPath = payload && payload.docPath ? String(payload.docPath) : "";
+    const resolved = await resolveImagePath(docPath, payload && payload.src);
+    return resolved ? { path: resolved } : null;
+  });
+
   ipcMain.handle("image:test-upload", async () => {
     try {
       const url =
@@ -604,10 +613,172 @@ function createWindow() {
     if (state.win === win) state.win = null;
   });
 
-  if (SHOTS_DIR) runShots(win);
+  if (process.env.MDMaster_DEBUG_IMAGES) runImageDebug(win);
+  else if (SHOTS_DIR) runShots(win);
   else if (SMOKE_OUT) runSmoke();
 
   return win;
+}
+
+/* --------------------------------------------------- 网络图片缓存与定位 */
+
+const IMAGE_CACHE_TTL_MS = 7 * 24 * 3600 * 1000;
+const remoteInflight = new Map();
+let imageIndexCache = { root: "", at: 0, map: new Map() };
+
+const imageCacheDir = () => path.join(app.getPath("userData"), "image-cache");
+
+function imageCacheKey(url) {
+  return crypto.createHash("sha1").update(url).digest("hex");
+}
+
+/**
+ * 远程图片统一由主进程下载并缓存到本地。
+ * 关键点：Node 的 fetch 不读取 Windows 系统代理，而 Chromium 会，
+ * 因此当系统代理无法访问图片主机时，走这里反而能正常显示，且二次打开不再依赖网络。
+ */
+async function serveRemoteImage(rawUrl) {
+  if (!/^https?:\/\//i.test(rawUrl)) return new Response("bad url", { status: 400 });
+  const dir = imageCacheDir();
+  const key = imageCacheKey(rawUrl);
+  const dataPath = path.join(dir, key + ".bin");
+  const metaPath = path.join(dir, key + ".json");
+
+  try {
+    const stat = await fs.stat(dataPath);
+    if (Date.now() - stat.mtimeMs < IMAGE_CACHE_TTL_MS) {
+      const body = await fs.readFile(dataPath);
+      let contentType = "image/png";
+      try {
+        contentType = JSON.parse(await fs.readFile(metaPath, "utf8")).contentType || contentType;
+      } catch {
+        /* 忽略 */
+      }
+      return new Response(body, { headers: { "content-type": contentType, "cache-control": "max-age=600" } });
+    }
+  } catch {
+    /* 未命中，继续下载 */
+  }
+
+  if (remoteInflight.has(key)) return remoteInflight.get(key);
+
+  const task = (async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20000);
+    try {
+      const response = await fetch(rawUrl, { signal: controller.signal, redirect: "follow" });
+      if (!response.ok) return new Response("upstream " + response.status, { status: 502 });
+      const buffer = Buffer.from(await response.arrayBuffer());
+      const contentType = response.headers.get("content-type") || "image/png";
+      await fs.mkdir(dir, { recursive: true });
+      await fs.writeFile(dataPath, buffer);
+      await fs.writeFile(metaPath, JSON.stringify({ url: rawUrl, contentType, savedAt: Date.now() }), "utf8");
+      return new Response(buffer, { headers: { "content-type": contentType } });
+    } catch (error) {
+      return new Response("fetch failed: " + String((error && error.message) || error), { status: 502 });
+    } finally {
+      clearTimeout(timer);
+      remoteInflight.delete(key);
+    }
+  })();
+
+  remoteInflight.set(key, task);
+  return task;
+}
+
+/** 工作区内图片文件名索引，用于相对路径找不到时的兜底定位 */
+async function workspaceImageIndex() {
+  const now = Date.now();
+  if (imageIndexCache.root === state.root && now - imageIndexCache.at < 8000) return imageIndexCache.map;
+  const map = new Map();
+  const walk = async (dir, depth) => {
+    if (depth > 8) return;
+    let entries = [];
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith(".")) continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (SKIP_DIRS.has(entry.name)) continue;
+        await walk(full, depth + 1);
+      } else if (IMAGE_EXT.has(path.extname(entry.name).toLowerCase())) {
+        const key = entry.name.toLowerCase();
+        if (!map.has(key)) map.set(key, full);
+      }
+    }
+  };
+  if (state.root) await walk(state.root, 0);
+  imageIndexCache = { root: state.root, at: now, map };
+  return map;
+}
+
+/** 把 Markdown 里写的图片地址解析成真实存在的绝对路径 */
+async function resolveImagePath(docPath, src) {
+  const raw = String(src || "").trim();
+  if (!raw || /^(https?:|data:|mdlocal:)/i.test(raw)) return null;
+  const cleaned = raw.replace(/^file:\/{2,3}/i, "").replace(/\\/g, "/");
+  const candidates = [];
+  if (/^[A-Za-z]:\//.test(cleaned) || cleaned.startsWith("//")) {
+    candidates.push(path.resolve(cleaned));
+  } else if (cleaned.startsWith("/")) {
+    candidates.push(path.resolve(cleaned.slice(1)));
+  } else if (!cleaned.startsWith("..")) {
+    if (docPath) candidates.push(path.resolve(path.dirname(docPath), cleaned));
+    if (state.root) candidates.push(path.resolve(state.root, cleaned));
+  } else {
+    if (docPath) candidates.push(path.resolve(path.dirname(docPath), cleaned));
+    if (state.root) candidates.push(path.resolve(state.root, cleaned));
+  }
+  for (const candidate of candidates) {
+    try {
+      const stat = await fs.stat(candidate);
+      if (stat.isFile()) return candidate;
+    } catch {
+      /* 继续尝试 */
+    }
+  }
+  const base = path.basename(cleaned);
+  if (base && state.root) {
+    const index = await workspaceImageIndex();
+    const hit = index.get(base.toLowerCase());
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/* 图片诊断：逐张检查预览区图片的加载状态与 mdlocal 协议响应（MDMaster_DEBUG_IMAGES=<报告路径>） */
+async function runImageDebug(win) {
+  const out = path.resolve(process.env.MDMaster_DEBUG_IMAGES);
+  await delay(SMOKE_WAIT);
+  try {
+    const report = await win.webContents.executeJavaScript(
+      "(async () => {" +
+        "  const imgs = Array.from(document.querySelectorAll('.preview-article img'));" +
+        "  const rows = [];" +
+        "  for (const img of imgs) {" +
+        "    const src = img.getAttribute('src') || '';" +
+        "    const next = img.nextElementSibling;" +
+        "    rows.push({ orig: img.getAttribute('data-orig') || '', src: src.slice(0, 120), complete: img.complete, w: img.naturalWidth, dataError: img.getAttribute('data-error'), hint: next && next.className === 'img-broken-hint' ? next.textContent : null });" +
+        "  }" +
+        "  const info = await window.mdmaster.info();" +
+        "  return { root: info.root, count: imgs.length, rows };" +
+        "})()"
+    );
+    await fs.mkdir(path.dirname(out), { recursive: true });
+    await fs.writeFile(out, JSON.stringify(report, null, 2), "utf8");
+  } catch (error) {
+    try {
+      await fs.writeFile(out, JSON.stringify({ error: String((error && error.stack) || error) }, null, 2), "utf8");
+    } catch {
+      /* ignore */
+    }
+  } finally {
+    app.exit(0);
+  }
 }
 
 /* 为软著说明书采集界面截图（仅在设置 MDMaster_SHOTS_DIR 时运行） */
@@ -1105,12 +1276,20 @@ if (!gotLock) {
     protocol.handle("mdlocal", async (request) => {
       try {
         const url = new URL(request.url);
+        // mdlocal://remote/?u=... 会被解析成 host=remote、pathname=/
+        if (url.host === "remote" || url.pathname === "/remote" || url.pathname === "/remote/") {
+          return await serveRemoteImage(url.searchParams.get("u") || "");
+        }
         let filePath = decodeURIComponent(url.pathname);
         if (/^\/[A-Za-z]:/.test(filePath)) filePath = filePath.slice(1);
         const abs = path.resolve(filePath);
         if (state.root) {
           const rel = path.relative(state.root, abs);
-          if (rel.startsWith("..") || path.isAbsolute(rel)) return new Response("forbidden", { status: 403 });
+          const inside = rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+          // 工作区外的文件只放行图片，避免被文档读取任意本地文件
+          if (!inside && !IMAGE_EXT.has(path.extname(abs).toLowerCase())) {
+            return new Response("forbidden", { status: 403 });
+          }
         }
         return await net.fetch(pathToFileURL(abs).toString());
       } catch {

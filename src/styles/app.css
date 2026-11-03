@@ -857,6 +857,27 @@ body.is-resizing {
   border: 1px dashed #f0b4b7;
 }
 
+.img-broken-hint {
+  margin: 6px 0 0;
+  padding: 6px 10px;
+  border: 1px dashed #f0b4b7;
+  border-radius: 6px;
+  background: #fff6f6;
+  color: #c0393f;
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: left;
+  word-break: break-all;
+}
+
+.tree-file.is-image {
+  color: var(--muted);
+}
+
+.tree-file.is-image .tree-file-icon {
+  font-size: 10px;
+}
+
 .preview-article [id] {
   scroll-margin-top: 12px;
 }

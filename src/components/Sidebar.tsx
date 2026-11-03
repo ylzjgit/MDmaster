@@ -17,6 +17,7 @@ interface SidebarProps {
   onRefresh: () => void;
   onContextMenu: (event: React.MouseEvent, node: TreeNode) => void;
   onMove: (source: string, target: string) => void;
+  onReveal: (path: string) => void;
   onCollapse: () => void;
 }
 
@@ -93,6 +94,7 @@ export function Sidebar(props: SidebarProps) {
             onOpenFile={props.onOpenFile}
             onContextMenu={props.onContextMenu}
             onMove={props.onMove}
+            onReveal={props.onReveal}
           />
         )}
       </div>

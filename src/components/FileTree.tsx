@@ -11,6 +11,7 @@ interface FileTreeProps {
   onOpenFile: (node: TreeNode) => void;
   onContextMenu: (event: React.MouseEvent, node: TreeNode) => void;
   onMove: (sourcePath: string, targetDir: string) => void;
+  onReveal: (path: string) => void;
   rootPath: string;
 }
 
@@ -53,6 +54,23 @@ export function FileTree(props: FileTreeProps) {
                 <span className="tree-label">{node.name}</span>
               </div>
               {isOpen ? <FileTree {...props} nodes={node.children ?? []} depth={depth + 1} /> : null}
+            </div>
+          );
+        }
+
+        if (node.image) {
+          return (
+            <div
+              key={node.path}
+              data-tree-path={node.path}
+              className="tree-row tree-file is-image"
+              style={{ paddingLeft: 8 + depth * 12 + 16 }}
+              onClick={() => props.onReveal(node.path)}
+              onContextMenu={(event) => props.onContextMenu(event, node)}
+              title={node.path + "（点击在资源管理器中显示）"}
+            >
+              <span className="tree-file-icon">🖼</span>
+              <span className="tree-label">{node.name}</span>
             </div>
           );
         }

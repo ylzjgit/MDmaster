@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld("mdmaster", {
     save: (payload) => invoke("image:save", payload),
     upload: (srcs) => invoke("image:upload", { srcs }),
     testUpload: () => invoke("image:test-upload"),
+    resolve: (payload) => invoke("images:resolve", payload),
   },
   exportHtml: (defaultName, html) => invoke("export:html", { defaultName, html }),
   onFlushRequest: (callback) => {

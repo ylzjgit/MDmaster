@@ -33,6 +33,7 @@ export interface MdMasterBridge {
     save: (payload: { buffer: ArrayBuffer; type: string; name: string; docPath: string }) => Promise<SavedImage>;
     upload: (srcs: string[]) => Promise<UploadResult>;
     testUpload: () => Promise<{ ok: boolean; url?: string; error?: string }>;
+    resolve: (payload: { docPath: string; src: string }) => Promise<{ path: string } | null>;
   };
   exportHtml: (defaultName: string, html: string) => Promise<string | null>;
   onFlushRequest?: (callback: () => void) => () => void;
@@ -148,6 +149,7 @@ function createMemoryBridge(): MdMasterBridge {
       },
       upload: async () => ({ map: {}, errors: ["浏览器预览模式不支持上传图片"] }),
       testUpload: async () => ({ ok: false, error: "浏览器预览模式不支持上传图片" }),
+      resolve: async () => null,
     },
     exportHtml: async () => null,
     onWorkspaceChanged: () => () => undefined,

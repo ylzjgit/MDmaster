@@ -170,13 +170,37 @@ function uniqueId(env: RenderEnv, text: string, index: number): string {
   return seen === 0 ? base : base + "-" + seen;
 }
 
+/** 远程图片统一走主进程下载 + 本地缓存（Node fetch 不读系统代理，也不受 Chromium 代理影响） */
+// 注意：标准协议下 mdlocal:///remote 会被解析成 host=remote，这里用规范形式
+export const REMOTE_IMAGE_PREFIX = "mdlocal://remote/?u=";
+
+export function buildLocalImageUrl(absPath: string): string {
+  const normalized = String(absPath).replace(/\\/g, "/");
+  const encoded = /%[0-9A-Fa-f]{2}/.test(normalized) ? normalized : encodeURI(normalized);
+  return "mdlocal:///" + encoded;
+}
+
+export function buildRemoteImageUrl(url: string): string {
+  return REMOTE_IMAGE_PREFIX + encodeURIComponent(url);
+}
+
 function resolveImageSrc(src: string, env: RenderEnv): string {
-  if (!src) return src;
-  if (/^(https?:|data:|file:|mdlocal:)/i.test(src)) return src;
-  if (!env.docPath) return src;
+  const raw = String(src || "").trim();
+  if (!raw) return raw;
+  if (/^data:/i.test(raw)) return raw;
+  if (/^mdlocal:/i.test(raw)) return raw;
+  if (/^https?:\/\//i.test(raw)) return buildRemoteImageUrl(raw);
+
+  // file:/// 与 Windows 绝对路径：直接按绝对路径处理
+  const noScheme = raw.replace(/^file:\/{2,3}/i, "").replace(/\\/g, "/");
+  if (/^[A-Za-z]:\//.test(noScheme) || noScheme.startsWith("//")) {
+    return buildLocalImageUrl(noScheme);
+  }
+
+  if (!env.docPath) return noScheme;
   // markdown-it 已经对相对路径做过百分号编码，这里只编码文档目录，避免二次编码
   const dir = env.docPath.replace(/\\/g, "/").replace(/\/[^/]*$/, "/");
-  const rel = src.replace(/^\.\//, "").replace(/^\/+/, "");
+  const rel = noScheme.replace(/^\.\//, "").replace(/^\/+/, "");
   return "mdlocal:///" + encodeURI(dir) + rel;
 }
 
@@ -187,6 +211,17 @@ function createMarkdown(): MarkdownIt {
     breaks: true,
     typographer: false,
   });
+
+  // markdown-it 默认拦截 file: 协议，放开以便支持 ![](file:///E:/x.png)
+  // 仍然拦截可执行脚本协议，避免预览注入
+  md.validateLink = (url: string) => {
+    const lower = String(url || "").trim().toLowerCase();
+    if (lower.startsWith("javascript:")) return false;
+    if (lower.startsWith("vbscript:")) return false;
+    if (lower.startsWith("file://")) return true;
+    if (lower.startsWith("data:")) return true;
+    return true;
+  };
 
   // 独立成段的图片：标记为块级图片，渲染成「图片 + 图注」
   md.core.ruler.after("inline", "block_images", (state) => {
@@ -429,7 +464,8 @@ export function collectLocalImageSrcs(html: string): string[] {
   const pattern = /<img\b[^>]*\ssrc="(mdlocal:[^"]*)"/g;
   let match: RegExpExecArray | null = pattern.exec(html);
   while (match !== null) {
-    out.add(match[1]);
+    // 远程图本身已是公网地址，不需要再上传
+    if (match[1].indexOf(REMOTE_IMAGE_PREFIX) !== 0) out.add(match[1]);
     match = pattern.exec(html);
   }
   return Array.from(out);

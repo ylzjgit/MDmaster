@@ -2,6 +2,8 @@ import { useEffect, useImperativeHandle, useRef } from "react";
 import type { Ref } from "react";
 import { activeHeadingId, collectAnchors, lineAtScroll, lineFromElement, offsetForLine } from "../lib/scrollSync";
 import type { Anchor } from "../lib/scrollSync";
+import { bridge } from "../lib/bridge";
+import { buildLocalImageUrl } from "../lib/markdown";
 
 export interface PreviewScrollState {
   line: number;
@@ -16,13 +18,14 @@ export interface PreviewHandle {
 
 interface PreviewProps {
   html: string;
+  docPath: string;
   onScroll: (state: PreviewScrollState) => void;
   onJumpToLine: (line: number) => void;
   onOpenLink: (url: string) => void;
   ref?: Ref<PreviewHandle>;
 }
 
-export function Preview({ html, onScroll, onJumpToLine, onOpenLink, ref }: PreviewProps) {
+export function Preview({ html, docPath, onScroll, onJumpToLine, onOpenLink, ref }: PreviewProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const rafRef = useRef(0);
   const cacheRef = useRef<{ html: string; anchors: Anchor[] }>({ html: "", anchors: [] });
@@ -54,13 +57,50 @@ export function Preview({ html, onScroll, onJumpToLine, onOpenLink, ref }: Previ
     const article = el?.querySelector(".preview-article");
     if (!el || !article) return;
 
+    let cancelled = false;
     const images = Array.from(article.querySelectorAll("img"));
+
+    const showHint = (img: HTMLImageElement, text: string) => {
+      img.setAttribute("data-error", "1");
+      const next = img.nextElementSibling;
+      if (next instanceof HTMLElement && next.classList.contains("img-broken-hint")) {
+        next.textContent = text;
+        return;
+      }
+      const hint = document.createElement("p");
+      hint.className = "img-broken-hint";
+      hint.textContent = text;
+      img.insertAdjacentElement("afterend", hint);
+    };
+
+    const handleBroken = async (img: HTMLImageElement) => {
+      const orig = img.getAttribute("data-orig") || "";
+      const isRemote = /^https?:/i.test(orig);
+      // 本地图片：先请主进程用「文档目录 / 工作区 / 同名文件」兜底找一遍
+      if (!isRemote && orig && img.getAttribute("data-retried") !== "1") {
+        img.setAttribute("data-retried", "1");
+        const found = await bridge.images.resolve({ docPath, src: orig }).catch(() => null);
+        if (cancelled) return;
+        if (found && found.path) {
+          img.src = buildLocalImageUrl(found.path);
+          return;
+        }
+      }
+      if (cancelled) return;
+      showHint(
+        img,
+        isRemote
+          ? "网络图片下载失败，请检查网络或系统代理：" + orig
+          : "找不到图片文件：" + (orig || img.getAttribute("src") || "")
+      );
+    };
+
     const onError = (event: Event) => {
-      (event.currentTarget as HTMLImageElement).setAttribute("data-error", "1");
+      void handleBroken(event.currentTarget as HTMLImageElement);
     };
     for (const img of images) {
-      if (img.complete && img.naturalWidth === 0) img.setAttribute("data-error", "1");
-      else img.addEventListener("error", onError);
+      img.addEventListener("error", onError);
+      if (img.complete && img.naturalWidth === 0) void handleBroken(img);
     }
 
     let observer: ResizeObserver | null = null;
@@ -72,10 +112,11 @@ export function Preview({ html, onScroll, onJumpToLine, onOpenLink, ref }: Previ
     }
 
     return () => {
+      cancelled = true;
       for (const img of images) img.removeEventListener("error", onError);
       observer?.disconnect();
     };
-  }, [html]);
+  }, [html, docPath]);
 
   const handleScroll = () => {
     if (rafRef.current) return;

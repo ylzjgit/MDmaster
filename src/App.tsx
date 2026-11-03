@@ -149,7 +149,7 @@ export default function App() {
     () => renderMarkdown(content, { theme, docPath: activePath ?? undefined, breaks }),
     [content, theme, activePath, breaks]
   );
-  const files = useMemo(() => flattenFiles(tree), [tree]);
+  const files = useMemo(() => flattenFiles(tree).filter((entry) => entry.markdown), [tree]);
   const dirtyPaths = useMemo(
     () => new Set(tabs.filter((tab) => tab.content !== tab.savedContent).map((tab) => tab.path)),
     [tabs]
@@ -245,8 +245,14 @@ export default function App() {
     }
   }, []);
 
+  const IMAGE_FILE_RE = /\.(png|jpe?g|gif|webp|svg|ico|bmp|avif)$/i;
+
   const openFile = useCallback(
     async (path: string, name?: string) => {
+      if (IMAGE_FILE_RE.test(path)) {
+        void bridge.fs.reveal(path);
+        return;
+      }
       const existing = tabsRef.current.find((tab) => tab.path === path);
       if (existing) {
         setActivePath(path);
@@ -844,6 +850,7 @@ export default function App() {
                 onRefresh={() => void refreshTree()}
                 onContextMenu={openContext}
                 onMove={(source, target) => void moveEntry(source, target)}
+                onReveal={(path) => void bridge.fs.reveal(path)}
                 onCollapse={() => setSidebarOpen(false)}
               />
             </div>
@@ -900,6 +907,7 @@ export default function App() {
                       <Preview
                         ref={previewRef}
                         html={rendered.html}
+                        docPath={activePath ?? ""}
                         onScroll={handlePreviewScroll}
                         onJumpToLine={handlePreviewClickLine}
                         onOpenLink={handleOpenLink}

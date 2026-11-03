@@ -5,6 +5,7 @@ export interface TreeNode {
   children?: TreeNode[];
   size?: number;
   markdown?: boolean;
+  image?: boolean;
 }
 
 export interface DocTab {

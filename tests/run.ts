@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { renderMarkdown, computeStats, escapeHtml, buildStandaloneHtml, toCopyHtml, collectLocalImageSrcs } from "../src/lib/markdown";
+import {
+  renderMarkdown,
+  computeStats,
+  escapeHtml,
+  buildStandaloneHtml,
+  toCopyHtml,
+  collectLocalImageSrcs,
+  buildLocalImageUrl,
+} from "../src/lib/markdown";
 import { getTheme } from "../src/lib/theme";
 import * as T from "../src/lib/transforms";
 
@@ -164,6 +172,28 @@ test("引用内段落收紧上下间距", () => {
 test("列表内段落收紧上下间距", () => {
   const loose = renderMarkdown("- 第一段\n\n- 第二段", { theme });
   assert.match(loose.html, /<p style="[^"]*margin:6px 0/);
+});
+
+test("网络图片走主进程缓存，复制时还原原始公网地址", () => {
+  const html = renderMarkdown("![图](https://files.mdnice.com/user/1176/a.png)", {
+    theme,
+    docPath: "E:/d/n.md",
+  });
+  assert.match(html.html, /src="mdlocal:\/\/remote\/\?u=https%3A%2F%2Ffiles\.mdnice\.com%2Fuser%2F1176%2Fa\.png"/);
+  assert.equal(collectLocalImageSrcs(html.html).length, 0, "远程图不应进入上传队列");
+  assert.match(toCopyHtml(html.html), /src="https:\/\/files\.mdnice\.com\/user\/1176\/a\.png"/);
+});
+
+test("Windows 绝对路径与 file:// 按绝对路径解析", () => {
+  const abs = renderMarkdown("![a](E:/images/x.png)", { theme, docPath: "E:/d/n.md" });
+  assert.match(abs.html, /src="mdlocal:\/\/\/E:\/images\/x\.png"/);
+  const fileUrl = renderMarkdown("![a](file:///E:/images/y.png)", { theme, docPath: "E:/d/n.md" });
+  assert.match(fileUrl.html, /src="mdlocal:\/\/\/E:\/images\/y\.png"/);
+});
+
+test("buildLocalImageUrl 处理反斜杠、空格与中文", () => {
+  assert.equal(buildLocalImageUrl("E:\\图片\\x y.png"), "mdlocal:///E:/%E5%9B%BE%E7%89%87/x%20y.png");
+  assert.equal(buildLocalImageUrl("E:/%E5%9B%BE/x.png"), "mdlocal:///E:/%E5%9B%BE/x.png", "已编码路径不应二次编码");
 });
 
 test("统计字数", () => {
